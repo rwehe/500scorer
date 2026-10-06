@@ -31,3 +31,19 @@ The original vanilla-JS app is tagged `v1-legacy`.
 ## Credits
 
 Based on [jamessacummins/500scorer](https://github.com/jamessacummins/500scorer) by James Cummins. Thanks!
+
+
+## Cloudflare Pages (Git)
+
+In the Pages project **Settings → Builds**:
+
+| Setting | Value |
+| --- | --- |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Environment variable | `NODE_VERSION=22` |
+| Build image | **v3** (production + preview) |
+
+Do **not** put `pages_build_output_dir` in `wrangler.toml` for this Git-connected project — that made Cloudflare skip the build command and fail looking for `dist/`.
+
+`wrangler.toml` is only for local `wrangler pages dev` / CLI deploy helpers.

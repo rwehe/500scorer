@@ -1,5 +1,11 @@
-# Cloudflare Pages project config (static site, no Functions/backend).
-# Dashboard settings if connecting via Git: build command `npm run build`, output dir `dist`.
+# Local / Wrangler CLI only. Do NOT set pages_build_output_dir here —
+# that makes Wrangler the Pages source of truth and Git builds skip the
+# dashboard build command (which broke Astro: no dist/).
+#
+# Cloudflare Pages (Git) settings:
+#   Build command:  npm run build
+#   Build output:   dist
+#   NODE_VERSION:   22
+#   Build image:    v3
 name = "500scorer"
 compatibility_date = "2026-10-01"
-pages_build_output_dir = "./dist"
