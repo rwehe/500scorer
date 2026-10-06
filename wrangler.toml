@@ -1,0 +1,5 @@
+# Cloudflare Pages project config (static site, no Functions/backend).
+# Dashboard settings if connecting via Git: build command `npm run build`, output dir `dist`.
+name = "500scorer"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "./dist"
