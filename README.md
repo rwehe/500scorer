@@ -25,6 +25,16 @@ Pure, framework-free TypeScript in `src/lib/` (tests in `tests/`):
 - `scoring.ts` — `scoreHand(bid, bidder, tricks)`: made/missed, slam (10 tricks on a bid < 250 scores 250), opponents +10/trick, misère ±250 with opponents 0
 - `game.ts` — immutable game state: `createGame`, `recordHand`, `getScores`, `getOutcome` (win only by reaching ≥ 500 on your own made bid; ≤ −500 ends the game, highest score wins, ties draw), `undo`, `goToHand`, `replay`
 
+## UI (M2)
+
+Single Preact island (`src/components/App.tsx`, rendered `client:only`) wired to the engine:
+
+- **Welcome** → **Setup** (4 names required, unique, 2 teams of 2) → **Bid** (team picker + 5×5 bid grid + Misère, confirm) → **Tricks** (−/+ steppers or 0–10 chips; the other team auto-fills so the total is always 10; live made/set preview) → next hand, or **Win/Draw** screen.
+- Sticky **scoreboard** on every game screen; expand for hand history with per-hand rewind (`goToHand`) and **Undo last hand** (`undo`).
+- ☰ menu: new game with same players / new players, undo.
+- Current game is saved to `localStorage` as hand inputs and re-scored on load via `replay` (`src/app/persist.ts`). Saved/past games are M3.
+- Theme: dark felt-green, CSS variables in `src/styles/global.css`.
+
 ## Deploying (Cloudflare Pages)
 
 - Build command: `npm run build`
