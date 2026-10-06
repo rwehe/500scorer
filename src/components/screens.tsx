@@ -4,10 +4,11 @@ import { scoreHand, TRICKS_PER_HAND } from '../lib/scoring';
 import type { Game, GameOutcome } from '../lib/game';
 import type { Bid, BidId, Pair, TeamIndex, Teams } from '../lib/types';
 import { bidLabel, bidLongLabel, isRedSuit, ordinal, signed, SUIT_NAME, SUIT_SYMBOL, teamName } from '../app/format';
+import { PAST_GAMES_LIMIT, type PastGameSummary } from '../app/persist';
 
 /* ───────────────────────── Welcome ───────────────────────── */
 
-export function Welcome({ onStart }: { onStart: () => void }) {
+export function Welcome({ onStart, onPast, pastCount }: { onStart: () => void; onPast: () => void; pastCount: number }) {
   return (
     <div class="screen welcome">
       <img src="/img/cards.svg" alt="" class="welcome-art" width="320" height="225" />
@@ -16,7 +17,43 @@ export function Welcome({ onStart }: { onStart: () => void }) {
       <button type="button" class="btn btn-primary btn-xl" onClick={onStart}>
         New game
       </button>
+      <button type="button" class="btn btn-ghost btn-xl" onClick={onPast}>
+        Past games{pastCount > 0 ? ` (${pastCount})` : ''}
+      </button>
     </div>
+  );
+}
+
+export function InstallHint({
+  canInstall,
+  onInstall,
+  onDismiss,
+}: {
+  canInstall: boolean;
+  onInstall: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <aside class="install-hint">
+      <p class="install-title">Add to Home Screen</p>
+      {canInstall ? (
+        <p>Install 500 Scorer to keep score offline, even with no signal.</p>
+      ) : (
+        <p>
+          In Safari, tap the Share button, then <strong>Add to Home Screen</strong>. Scoring works offline after that.
+        </p>
+      )}
+      <div class="actions">
+        {canInstall && (
+          <button type="button" class="btn btn-primary btn-grow" onClick={onInstall}>
+            Install
+          </button>
+        )}
+        <button type="button" class="btn btn-ghost" onClick={onDismiss}>
+          Not now
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -305,25 +342,201 @@ export function TricksScreen({
 
 /* ───────────────────────── Win ───────────────────────── */
 
+const CONFETTI: readonly [string, string, string, string, string][] = [
+  ['♠', '6%', '0s', '2.4s', 'var(--gold)'],
+  ['♥', '18%', '0.15s', '2.8s', 'var(--red)'],
+  ['♦', '30%', '0.4s', '2.5s', '#ffb470'],
+  ['♣', '42%', '0.05s', '3s', 'var(--ink)'],
+  ['♠', '54%', '0.3s', '2.7s', 'var(--gold)'],
+  ['♥', '66%', '0.5s', '2.6s', 'var(--red)'],
+  ['♦', '76%', '0.1s', '3.1s', '#7cc4ff'],
+  ['♣', '88%', '0.35s', '2.4s', 'var(--gold)'],
+  ['♠', '24%', '0.55s', '2.9s', 'var(--ink)'],
+  ['♥', '48%', '0.22s', '2.55s', 'var(--gold)'],
+  ['♦', '70%', '0.45s', '2.85s', 'var(--red)'],
+  ['♣', '94%', '0.08s', '2.7s', '#ffb470'],
+];
+
 export function WinScreen({ game, outcome }: { game: Game; outcome: Exclude<GameOutcome, { status: 'in-progress' }> }) {
+  const draw = outcome.status === 'draw';
+  const detail = draw
+    ? 'A team fell to −500 and both scores finished level.'
+    : outcome.reason === 'reached-500'
+      ? `They made their bid and reached ${outcome.finalScores[outcome.winner]}.`
+      : 'A team fell to −500. The higher score wins.';
+
   return (
-    <div class="screen win">
-      <img src="/img/winners.svg" alt="" class="win-art" width="280" height="200" />
-      {outcome.status === 'draw' ? (
-        <h2 class="win-title">It's a draw!</h2>
-      ) : (
-        <>
-          <h2 class="win-title">{teamName(game.teams[outcome.winner])} win!</h2>
-          <p class="lede">
-            {outcome.reason === 'reached-500'
-              ? `Made their bid and reached ${outcome.finalScores[outcome.winner]}.`
-              : `A team fell to −500 or below; highest score wins.`}
-          </p>
-        </>
+    <div class={`screen win ${draw ? 'is-draw' : 'is-won'}`} aria-live="polite">
+      {!draw && (
+        <div class="confetti" aria-hidden="true">
+          {CONFETTI.map(([suit, left, delay, dur, color], i) => (
+            <span
+              key={i}
+              class="confetti-piece"
+              style={{ left, color, animationDelay: delay, animationDuration: dur }}
+            >
+              {suit}
+            </span>
+          ))}
+        </div>
       )}
-      <p class="final-score">
-        {outcome.finalScores[0]} – {outcome.finalScores[1]}
-      </p>
+      <p class="win-kicker">{draw ? 'Draw' : 'Winner'}</p>
+      <h2 class="win-title">{draw ? "It's a draw" : teamName(game.teams[outcome.winner])}</h2>
+      <p class="win-sub">{draw ? 'Honours even' : 'win the game'}</p>
+      <div class="final-board" aria-label="Final score">
+        {game.teams.map((t, i) => {
+          const winner = !draw && outcome.winner === i;
+          return (
+            <div key={i} class={`final-team team-${i}${winner ? ' is-winner' : ''}`}>
+              <span class="final-names">
+                {t.players[0]} <span class="amp">&amp;</span> {t.players[1]}
+              </span>
+              <span class={`final-num${outcome.finalScores[i] < 0 ? ' is-negative' : ''}`}>{outcome.finalScores[i]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p class="lede win-reason">{detail}</p>
+    </div>
+  );
+}
+
+/* ───────────────────────── Past games ───────────────────────── */
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+}
+
+function pastStatus(game: PastGameSummary): string {
+  if (game.status === 'draw') return 'Draw';
+  if (game.status === 'in-progress') return 'In progress';
+  return game.reason === 'minus-500' ? 'Won · −500' : 'Won · 500';
+}
+
+export function PastGames({
+  games,
+  onBack,
+  onOpen,
+  onRename,
+  onDelete,
+}: {
+  games: PastGameSummary[];
+  onBack: () => void;
+  onOpen: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+
+  const startRename = (game: PastGameSummary) => {
+    setEditing(game.id);
+    setDraft(game.title);
+  };
+
+  const commitRename = (id: string) => {
+    onRename(id, draft);
+    setEditing(null);
+  };
+
+  return (
+    <div class="screen past">
+      <button type="button" class="btn btn-ghost back-btn" onClick={onBack}>
+        ← Back
+      </button>
+      <h2 class="screen-title">Past games</h2>
+      <p class="lede">Saved on this device. The latest {PAST_GAMES_LIMIT} stay in the list.</p>
+      {games.length === 0 ? (
+        <p class="history-empty">Nothing saved yet. A finished game shows up here on its own.</p>
+      ) : (
+        <ul class="past-list">
+          {games.map((game) => (
+            <li key={game.id}>
+              <article class={`past-card${game.status === 'won' ? ` is-won team-${game.winner}` : ''}${game.status === 'draw' ? ' is-draw' : ''}`}>
+                {editing === game.id ? (
+                  <form
+                    class="rename-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      commitRename(game.id);
+                    }}
+                  >
+                    <label class="field">
+                      <span class="field-label">Game name</span>
+                      <input
+                        type="text"
+                        maxLength={40}
+                        autoFocus
+                        autoComplete="off"
+                        enterKeyHint="done"
+                        value={draft}
+                        placeholder={game.displayTitle}
+                        onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+                      />
+                    </label>
+                    <div class="actions">
+                      <button type="button" class="btn btn-ghost" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                      <button type="submit" class="btn btn-primary btn-grow">
+                        Save name
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <h3>{game.displayTitle}</h3>
+                )}
+                <p class="past-meta">
+                  <span class={`past-badge past-${game.status}`}>{pastStatus(game)}</span>
+                  <span>
+                    {game.hands} hand{game.hands === 1 ? '' : 's'}
+                  </span>
+                  <time dateTime={game.updatedAt}>{formatWhen(game.updatedAt)}</time>
+                </p>
+                <p class="past-score">
+                  <span class="past-score-side team-0">
+                    <span class="past-score-names">
+                      {game.teams[0].players[0]} <span class="amp">&amp;</span> {game.teams[0].players[1]}
+                    </span>
+                    <span class={`past-score-num${game.scores[0] < 0 ? ' is-negative' : ''}${game.winner === 0 ? ' is-winner' : ''}`}>
+                      {game.scores[0]}
+                    </span>
+                  </span>
+                  <span class="past-dash" aria-hidden="true">
+                    –
+                  </span>
+                  <span class="past-score-side team-1">
+                    <span class="past-score-names">
+                      {game.teams[1].players[0]} <span class="amp">&amp;</span> {game.teams[1].players[1]}
+                    </span>
+                    <span class={`past-score-num${game.scores[1] < 0 ? ' is-negative' : ''}${game.winner === 1 ? ' is-winner' : ''}`}>
+                      {game.scores[1]}
+                    </span>
+                  </span>
+                </p>
+                <div class="past-actions">
+                  <button type="button" class="btn btn-primary btn-open" onClick={() => onOpen(game.id)}>
+                    Open
+                  </button>
+                  <button type="button" class="btn btn-ghost" onClick={() => startRename(game)} aria-label={`Rename ${game.displayTitle}`}>
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-danger"
+                    aria-label={`Delete ${game.displayTitle}`}
+                    onClick={() => onDelete(game.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </article>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
